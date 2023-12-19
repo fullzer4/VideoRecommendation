@@ -36,6 +36,14 @@
     #'';
   };
 
+  programs.neovim = {
+    enable = true;
+    defaultEditor = true;
+    viAlias = true;
+    vimAlias = true;
+    vimdiffAlias = true;
+  };
+
   home.stateVersion = "22.11";
 
   programs.home-manager.enable = true;
