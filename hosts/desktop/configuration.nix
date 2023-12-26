@@ -46,19 +46,25 @@
         i3blocks
       ];
     };
-    layout = "br";
-    xkbVariant = "nodeadkeys";
+    layout = "us";
+    xkbVariant = "";
   };
-  console.keyMap = "br-abnt2";
 
   users.users.fullzer4 = {
     isNormalUser = true;
     description = "fullzer4";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [ "networkmanager" "wheel" "audio" ];
     packages = with pkgs; [];
   };
 
   nixpkgs.config.allowUnfree = true;
+
+  sound.enable = true;
+  hardware.pulseaudio.package = pkgs.pulseaudioFull;
+  hardware.pulseaudio.enable = true;
+  hardware.pulseaudio.support32Bit = true;
+  nixpkgs.config.pulseaudio = true;
+  hardware.pulseaudio.extraConfig = "load-module module-combine-sink";
 
   environment.systemPackages = with pkgs; [
     manix
@@ -67,6 +73,8 @@
     htop
     kitty
     firefox
+    discord
+    pavucontrol
   ];
 
   home-manager = {

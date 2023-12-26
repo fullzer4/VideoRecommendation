@@ -20,7 +20,7 @@
       nixosConfigurations.default = nixpkgs.lib.nixosSystem {
           specialArgs = {inherit inputs;};
           modules = [ 
-            ./hosts/notebook/configuration.nix
+            ./hosts/desktop/configuration.nix
             inputs.home-manager.nixosModules.default
           ];
         };
