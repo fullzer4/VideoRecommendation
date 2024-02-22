@@ -1,75 +1,124 @@
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
-from sklearn.feature_extraction.text import CountVectorizer
-from tensorflow.keras.layers import Input, Embedding, Dot, Flatten, Dense
-from tensorflow.keras.models import Model
-from scipy import sparse
+import numpy as np
+from sklearn.metrics import recall_score
 
-data = pd.read_csv("./data/BR_youtube_trending_data.csv")
+datasets = [
+    "BR_youtube_trending_data.csv",
+    "CA_youtube_trending_data.csv",
+    "DE_youtube_trending_data.csv",
+    "FR_youtube_trending_data.csv",
+    "GB_youtube_trending_data.csv",
+    "IN_youtube_trending_data.csv",
+    "JP_youtube_trending_data.csv",
+    "KR_youtube_trending_data.csv",
+    "MX_youtube_trending_data.csv",
+    "RU_youtube_trending_data.csv",
+    "US_youtube_trending_data.csv"
+]
 
-data = data[['video_id', 'title', 'channelId', 'tags']]
+for dataset in datasets:
+    data = pd.read_csv(os.path.join("./data", dataset))
+    
+    recalls = []
+    f1_scores = []
 
-data = data.dropna()
+    label_encoder = LabelEncoder()
+    data['tag_encoded'] = label_encoder.fit_transform(data['tags'])
 
-data['tags'] = data['tags'].apply(lambda x: x.split('|'))
+    X = data[['view_count', 'likes', 'dislikes', 'comment_count']].values
+    y = data['tag_encoded'].values
 
-label_encoder = LabelEncoder()
-data['video_id'] = label_encoder.fit_transform(data['video_id'])
-data['channelId'] = label_encoder.fit_transform(data['channelId'])
+    X_tensor = torch.tensor(X, dtype=torch.float32)
+    y_tensor = torch.tensor(y, dtype=torch.long)
 
-train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
+    num_folds = 5
+    kfold = KFold(n_splits=num_folds, shuffle=True, random_state=42)
 
-train_data['tags_str'] = train_data['tags'].apply(lambda x: ' '.join(x))
-test_data['tags_str'] = test_data['tags'].apply(lambda x: ' '.join(x))
+    class VideoRecommendationModel(nn.Module):
+        def __init__(self, input_size, output_size):
+            super(VideoRecommendationModel, self).__init__()
+            self.fc1 = nn.Linear(input_size, 64)
+            self.dropout1 = nn.Dropout(0.2)  
+            self.fc2 = nn.Linear(64, 32)
+            self.dropout2 = nn.Dropout(0.2)  
+            self.fc3 = nn.Linear(32, output_size)
+            self.relu = nn.ReLU()
 
-vectorizer = CountVectorizer(binary=True)
-train_tags_encoded = vectorizer.fit_transform(train_data['tags_str'])
-test_tags_encoded = vectorizer.transform(test_data['tags_str'])
+        def forward(self, x):
+            x = self.relu(self.fc1(x))
+            x = self.dropout1(x)
+            x = self.relu(self.fc2(x))
+            x = self.dropout2(x)
+            x = self.fc3(x)
+            return x
 
-train_tags_encoded, val_tags_encoded = train_test_split(train_tags_encoded, test_size=0.2, random_state=42)
+    criterion = nn.CrossEntropyLoss()
 
-embedding_dim = 100
+    train_losses = []
+    test_losses = []
 
-num_videos = len(data['video_id'].unique())
-num_channels = len(data['channelId'].unique())
+    for fold, (train_idx, test_idx) in enumerate(kfold.split(X)):
+        print(f'Fold [{fold+1}/{num_folds}]')
 
-video_input = Input(shape=(1,))
-channel_input = Input(shape=(1,))
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
 
-video_embedding = Embedding(num_videos, embedding_dim, input_length=1)(video_input)
-channel_embedding = Embedding(num_channels, embedding_dim, input_length=1)(channel_input)
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        y_train_tensor = torch.tensor(y_train, dtype=torch.long)
 
-dot_product = Dot(axes=2)([video_embedding, channel_embedding])
-dot_product = Flatten()(dot_product)
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+        y_test_tensor = torch.tensor(y_test, dtype=torch.long)
 
-dense1 = Dense(128, activation='relu')(dot_product)
-output = Dense(train_tags_encoded.shape[1], activation='softmax')(dense1)
+        input_size = X_train.shape[1]
+        output_size = len(label_encoder.classes_)
+        model = VideoRecommendationModel(input_size, output_size)
 
-model = Model(inputs=[video_input, channel_input], outputs=output)
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        num_epochs = 50
+        batch_size = 2048
+        for epoch in range(num_epochs):
+            model.train()
+            epoch_loss = 0
+            for idx in range(0, len(X_train_tensor), batch_size):
+                optimizer.zero_grad()
+                batch_X = X_train_tensor[idx:idx+batch_size]
+                batch_y = y_train_tensor[idx:idx+batch_size]
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
 
-model.summary()
+        model.eval()
+        test_loss = 0
+        with torch.no_grad():
+            outputs = model(X_test_tensor)
+            test_loss = criterion(outputs, y_test_tensor)
+    
+            _, predicted_labels = torch.max(outputs, 1)
 
-train_data, val_data = train_test_split(train_data, test_size=0.2, random_state=42)
-
-train_data['tags_str'] = train_data['tags'].apply(lambda x: ' '.join(x))
-val_data['tags_str'] = val_data['tags'].apply(lambda x: ' '.join(x))
-
-history = model.fit(
-    [train_data['video_id'], train_data['channelId']], 
-    train_tags_encoded.toarray(), 
-    epochs=20,
-    batch_size=64,
-    validation_data=(
-        [val_data['video_id'], val_data['channelId']],
-        val_tags_encoded.toarray() 
-    )
-)
-
-loss, accuracy = model.evaluate(
-    [test_data['video_id'], test_data['channelId']],
-    test_tags_encoded.toarray()
-)
-print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
+            recall = recall_score(y_test, predicted_labels, average='macro')
+            
+            recalls.append(recall)
+        
+        print(f'Test Loss: {test_loss.item()}')
+        print(f'Recall: {recall}')
+        
+        train_losses.append(epoch_loss)
+        test_losses.append(test_loss.item())
+        
+        country_code = dataset[:2]
+        model_path = os.path.join("models", f"model_{country_code}.pth")
+        torch.save(model.state_dict(), model_path)
+    
+    print('Average Train Loss:', sum(train_losses) / num_folds)
+    print('Average Test Loss:', sum(test_losses) / num_folds)
+    print('Average Recall:', np.mean(recalls))
+    print('Average F1-score:', np.mean(f1_scores))
