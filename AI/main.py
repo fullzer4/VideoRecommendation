@@ -113,7 +113,9 @@ for dataset in datasets:
         
         train_losses.append(epoch_loss)
         test_losses.append(test_loss.item())
-        
+    
+        predicted_tags = label_encoder.inverse_transform(predicted_labels)
+
         country_code = dataset[:2]
         model_path = os.path.join("models", f"model_{country_code}.pth")
         torch.save(model.state_dict(), model_path)
