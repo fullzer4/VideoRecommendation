@@ -1,0 +1,23 @@
+version: '3'
+
+services:
+  backend:
+    build:
+      context: ./Backend  
+      dockerfile: Dockerfile  
+    ports:
+      - "12345:12345"
+    networks:
+      - compose-network
+  frontend:
+    build:
+      context: ./Frontend  
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    networks:
+      - compose-network
+
+networks: 
+  compose-network:
+    driver: bridge
